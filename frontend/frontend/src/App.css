@@ -1,0 +1,40 @@
+/* App.css propre responsive */
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  background: #0a0f1c;
+  color: white;
+  overflow-x: hidden;
+}
+
+body {
+  overflow-y: auto;
+  font-family: Inter, Arial, sans-serif;
+}
+
+/* Scrollbar globale */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(59,130,246,0.4) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(59,130,246,0.35);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(59,130,246,0.6);
+}

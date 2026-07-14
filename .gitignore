@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Frontend build outputs
+dist/
+build/
+.vite/
+
+# Backend build outputs
+target/
+*.class
+
+# Runtime uploads and generated files
+uploads/
+backend/backend/uploads/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / local config
+.idea/
+.vscode/
+*.iml
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Large local notebooks checkpoints
+.ipynb_checkpoints/
