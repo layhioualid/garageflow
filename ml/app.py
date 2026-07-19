@@ -4,6 +4,8 @@ import joblib
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import json
+from pathlib import Path
 
 app = Flask(__name__)
 CORS(app)
@@ -12,8 +14,23 @@ CORS(app)
 # 1. CHARGEMENT DU MODÈLE
 # =====================================================
 
-model = joblib.load("vehicle_maintenance_model.pkl")
-removed_columns = joblib.load("vehicle_maintenance_removed_columns.pkl")
+BASE_DIR = Path(__file__).resolve().parent
+BUNDLE_PATH = BASE_DIR / "vehicle_maintenance_model_bundle.joblib"
+METADATA_PATH = BASE_DIR / "vehicle_maintenance_model_bundle.metadata.json"
+
+model_bundle = joblib.load(BUNDLE_PATH)
+model = model_bundle["pipeline"]
+model_threshold = float(model_bundle.get("threshold", 0.5))
+model_schema = model_bundle.get("schema", {})
+feature_order = model_bundle.get("feature_order", list(model_schema.keys()))
+model_version = model_bundle.get("version", "2.0.0")
+model_metrics = model_bundle.get("metrics", {})
+removed_columns = []
+
+bundle_metadata = {}
+if METADATA_PATH.exists():
+    with METADATA_PATH.open("r", encoding="utf-8") as metadata_file:
+        bundle_metadata = json.load(metadata_file)
 
 print("===== MODÈLE CHARGÉ AVEC SUCCÈS =====")
 print("Colonnes supprimées :", removed_columns)
@@ -102,6 +119,12 @@ default_values = {
 }
 
 required_columns = list(default_values.keys())
+model_default_values = {
+    **default_values,
+    "Days_Since_Last_Service_Date": 365,
+    "Issues_Per_Service": 0,
+    "Mileage_Per_Year": 20000,
+}
 
 
 # =====================================================
@@ -160,53 +183,28 @@ def prepare_features(df):
 
     reference_date = pd.Timestamp(datetime.now().date())
 
-    df["Days_Since_Last_Service"] = (
+    df["Days_Since_Last_Service_Date"] = (
         reference_date - df["Last_Service_Date"]
-    ).dt.days
-
-    df["Warranty_Remaining_Days"] = (
-        df["Warranty_Expiry_Date"] - reference_date
     ).dt.days
 
     df["Mileage_Per_Year"] = (
         df["Mileage"] / df["Vehicle_Age"].replace(0, 1)
     )
 
-    df["Odometer_Mileage_Gap"] = (
-        df["Odometer_Reading"] - df["Mileage"]
-    )
-
-    df["Accident_Rate_By_Age"] = (
-        df["Accident_History"] / (df["Vehicle_Age"] + 1)
-    )
-
     df["Issues_Per_Service"] = (
         df["Reported_Issues"] / (df["Service_History"] + 1)
     )
 
-    # =====================================================
-    # NOUVELLES FEATURES MANQUANTES
-    # =====================================================
-
-    df["Warranty_Expired"] = (
-        df["Warranty_Remaining_Days"] < 0
-    ).astype(int)
-
-    df["Old_And_High_Mileage"] = (
-        (df["Vehicle_Age"] >= 7) & (df["Mileage"] >= 120000)
-    ).astype(int)
-
-    df["Vehicle_Usage_Intensity"] = (
-        df["Mileage"] / df["Vehicle_Age"].replace(0, 1)
-    )
-
-    df = df.drop(
-        columns=["Last_Service_Date", "Warranty_Expiry_Date"],
-        errors="ignore"
-    )
+    df["Warranty_Expiry_Date"] = df["Warranty_Expiry_Date"].dt.strftime("%Y-%m-%d")
 
     df = df.replace([np.inf, -np.inf], 0)
     df = df.fillna(0)
+
+    for column in feature_order:
+        if column not in df.columns:
+            df[column] = model_default_values.get(column, 0)
+
+    df = df[feature_order]
 
     return df
 
@@ -449,7 +447,12 @@ def home():
         "status": "OK",
         "service": "GarageFlow+ IA maintenance prédictive",
         "modelLoaded": True,
-        "removedColumns": removed_columns
+        "modelUsed": BUNDLE_PATH.name,
+        "modelVersion": model_version,
+        "threshold": model_threshold,
+        "features": feature_order,
+        "metrics": model_metrics,
+        "metadata": bundle_metadata
     })
 
 
@@ -457,7 +460,9 @@ def home():
 def health():
     return jsonify({
         "status": "UP",
-        "model": "vehicle_maintenance_model.pkl"
+        "model": BUNDLE_PATH.name,
+        "version": model_version,
+        "threshold": model_threshold
     })
 
 
@@ -483,17 +488,14 @@ def predict_maintenance():
 
         prepared_df = prepare_features(raw_df)
 
-        model_input = prepared_df.drop(
-            columns=removed_columns,
-            errors="ignore"
-        )
+        model_input = prepared_df[feature_order]
 
         print("===== DATA ENVOYÉE AU MODÈLE =====")
         print(model_input.to_dict(orient="records")[0])
 
         if hasattr(model, "predict_proba"):
             probability = float(model.predict_proba(model_input)[0][1])
-            prediction = int(probability >= 0.5)
+            prediction = int(probability >= model_threshold)
         else:
             prediction = int(model.predict(model_input)[0])
             probability = float(prediction)
@@ -506,8 +508,12 @@ def predict_maintenance():
             "probability": probability,
             "probabilityPercent": round(probability * 100, 2),
             "riskLevel": risk_level,
+            "niveauRisque": risk_level,
             "recommendation": recommendation,
-            "modelUsed": "vehicle_maintenance_model.pkl",
+            "modelUsed": BUNDLE_PATH.name,
+            "modelVersion": model_version,
+            "threshold": model_threshold,
+            "metrics": model_metrics,
             "removedColumns": removed_columns,
             "inputUsed": model_input.to_dict(orient="records")[0]
         })
