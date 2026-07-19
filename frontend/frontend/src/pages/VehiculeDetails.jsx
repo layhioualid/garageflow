@@ -122,6 +122,17 @@ const AI_NUMERIC_FIELDS = [
   "fuelEfficiency",
 ];
 
+const AI_MANUAL_FIELDS = new Set([
+  "warrantyExpiryDate",
+  "ownerType",
+  "insurancePremium",
+  "accidentHistory",
+  "fuelEfficiency",
+  "tireCondition",
+  "brakeCondition",
+  "batteryStatus",
+]);
+
 export default function VehiculeDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -454,6 +465,81 @@ export default function VehiculeDetails() {
     }
   };
 
+  const getInterventionDateValue = (intervention) => {
+    const value =
+      intervention?.dateFin ||
+      intervention?.dateDebut ||
+      intervention?.dateCreation ||
+      intervention?.createdAt;
+
+    return value ? new Date(value).getTime() : 0;
+  };
+
+  const getLatestServiceIntervention = () => {
+    const sorted = [...interventions].sort(
+      (a, b) => getInterventionDateValue(b) - getInterventionDateValue(a)
+    );
+
+    return (
+      sorted.find((item) => item.statut === "DONE") ||
+      sorted.find((item) => item.statut === "IN_PROGRESS") ||
+      sorted[0] ||
+      null
+    );
+  };
+
+  const buildMaintenanceProfile = () => {
+    const interventionCount = interventions.length;
+    const doneCount = interventions.filter((item) => item.statut === "DONE").length;
+    const activeCount = interventions.filter((item) =>
+      ["PENDING", "IN_PROGRESS"].includes(item.statut)
+    ).length;
+    const rejectedCount = interventions.filter((item) => item.statut === "REJECTED").length;
+    const latestService = getLatestServiceIntervention();
+    const latestServiceDate = latestService
+      ? formatDateForApi(latestService.dateFin || latestService.dateDebut)
+      : formatDateForApi(vehicule?.dateMiseService || vehicule?.date_mise_service);
+    const hasMaintenanceStatus = vehicule?.statut === "MAINTENANCE";
+    const hasManyProblems = interventionCount >= 3 || activeCount >= 2 || hasMaintenanceStatus;
+    const hasAverageHistory = interventionCount > 0 || doneCount > 0;
+
+    return {
+      interventionCount,
+      doneCount,
+      activeCount,
+      rejectedCount,
+      latestService,
+      latestServiceDate,
+      maintenanceHistory: hasManyProblems ? "Poor" : hasAverageHistory ? "Average" : "Good",
+      hasManyProblems,
+    };
+  };
+
+  const aiSourceSummary = useMemo(() => {
+    if (!vehicule) return [];
+
+    const profile = buildMaintenanceProfile();
+
+    return [
+      {
+        label: "Interventions precedentes",
+        value: profile.interventionCount,
+      },
+      {
+        label: "Services termines",
+        value: profile.doneCount,
+      },
+      {
+        label: "Dernier service",
+        value: profile.latestServiceDate,
+      },
+      {
+        label: "Historique deduit",
+        value: profile.maintenanceHistory,
+      },
+    ];
+  }, [vehicule, interventions]);
+
   const cleanPredictionPayload = (payload) => {
     const cleaned = { ...AI_DEFAULTS, ...payload };
 
@@ -475,42 +561,43 @@ export default function VehiculeDetails() {
     const currentYear = new Date().getFullYear();
     const kilometrage = Number(vehicule?.kilometrage || 0);
     const annee = Number(vehicule?.annee || currentYear);
-    const interventionCount = interventions.length;
-
-    const hasManyProblems =
-      interventionCount >= 3 || vehicule?.statut === "MAINTENANCE";
+    const profile = buildMaintenanceProfile();
+    const fallbackLastServiceMileage =
+      Math.max(kilometrage - Math.max(profile.interventionCount, 1) * 5000, 0) ||
+      AI_DEFAULTS.lastServiceMileage;
 
     const autoVehicleData = {
       vehiculeId: vehicule.id,
       vehicleModel: normalizeVehicleModel(vehicule.modele),
       mileage: kilometrage,
-      maintenanceHistory: hasManyProblems ? "Poor" : "Good",
-      reportedIssues: interventionCount,
+      maintenanceHistory: profile.maintenanceHistory,
+      reportedIssues: profile.interventionCount,
       vehicleAge: Math.max(currentYear - annee, 0),
       fuelType: normalizeFuelType(vehicule.carburant),
       transmissionType: normalizeTransmission(vehicule.transmission),
       engineSize: Number(vehicule.engineSize || vehicule.engine_size || AI_DEFAULTS.engineSize),
       odometerReading: kilometrage,
-      lastServiceMileage: Math.max(kilometrage - 10000, 0) || AI_DEFAULTS.lastServiceMileage,
-      lastServiceDate: formatDateForApi(
-        vehicule.dateMiseService || vehicule.date_mise_service
-      ),
+      lastServiceMileage: fallbackLastServiceMileage,
+      lastServiceDate: profile.latestServiceDate,
       warrantyExpiryDate: "2027-01-01",
       ownerType: AI_DEFAULTS.ownerType,
       insurancePremium: 1200,
-      serviceHistory: interventionCount || 1,
+      serviceHistory: Math.max(profile.doneCount || profile.interventionCount, 1),
       accidentHistory: AI_DEFAULTS.accidentHistory,
       fuelEfficiency: 15.5,
-      tireCondition: hasManyProblems ? "Worn Out" : "Good",
-      brakeCondition: hasManyProblems ? "Worn Out" : "Good",
-      batteryStatus: hasManyProblems ? "Weak" : "Good",
+      tireCondition: profile.hasManyProblems ? "Average" : "Good",
+      brakeCondition: profile.hasManyProblems ? "Average" : "Good",
+      batteryStatus: profile.hasManyProblems ? "Weak" : "Good",
     };
 
     return cleanPredictionPayload({
       ...AI_DEFAULTS,
       ...autoVehicleData,
       ...overrides,
-      reportedIssues: interventionCount,
+      reportedIssues: profile.interventionCount,
+      serviceHistory: Math.max(profile.doneCount || profile.interventionCount, 1),
+      lastServiceDate: profile.latestServiceDate,
+      maintenanceHistory: profile.maintenanceHistory,
     });
   };
 
@@ -1726,7 +1813,11 @@ export default function VehiculeDetails() {
 
                   <AiBox
                     label="Modèle IA"
-                    value={`#${displayedAiResult.id || displayedAiResult.vehicleDataId || "-"}`}
+                    value={
+                      displayedAiResult.modelVersion ||
+                      displayedAiResult.modelUsed ||
+                      `#${displayedAiResult.id || displayedAiResult.vehicleDataId || "-"}`
+                    }
                     color="text-purple-600"
                   />
                 </div>
@@ -2075,6 +2166,7 @@ export default function VehiculeDetails() {
         <AiPredictionFormModal
           data={aiFormData}
           loading={aiLoading}
+          sourceSummary={aiSourceSummary}
           vehicleLabel={getVehicleLabel()}
           onChange={updateAiFormField}
           onClose={() => setShowAiForm(false)}
@@ -2258,6 +2350,7 @@ function AiBox({ label, value, color }) {
 function AiPredictionFormModal({
   data,
   loading,
+  sourceSummary,
   vehicleLabel,
   onChange,
   onClose,
@@ -2296,9 +2389,25 @@ function AiPredictionFormModal({
 
         <div className="overflow-y-auto p-6">
           <div className="mb-5 rounded-3xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-            Les valeurs deja connues du vehicule sont pre-remplies. Tu peux les
-            corriger avant de lancer l'analyse pour obtenir une prediction plus
-            precise.
+            GarageFlow pre-remplit les champs depuis le vehicule et ses
+            interventions precedentes. Les champs metier restants peuvent etre
+            completes manuellement, sinon app.py garde ses valeurs par defaut.
+          </div>
+
+          <div className="mb-6 grid grid-cols-1 md:grid-cols-4 gap-3">
+            {(sourceSummary || []).map((item) => (
+              <div
+                key={item.label}
+                className="rounded-2xl border border-slate-200 bg-white p-4"
+              >
+                <p className="text-xs font-bold uppercase text-slate-400">
+                  {item.label}
+                </p>
+                <p className="mt-2 text-lg font-black text-slate-950">
+                  {item.value ?? "-"}
+                </p>
+              </div>
+            ))}
           </div>
 
           <div className="space-y-6">
@@ -2318,6 +2427,7 @@ function AiPredictionFormModal({
                       key={field.name}
                       field={field}
                       value={data[field.name]}
+                      isManual={AI_MANUAL_FIELDS.has(field.name)}
                       onChange={onChange}
                     />
                   ))}
@@ -2358,7 +2468,7 @@ function AiPredictionFormModal({
   );
 }
 
-function AiField({ field, value, onChange }) {
+function AiField({ field, value, isManual, onChange }) {
   const id = `ai-${field.name}`;
   const disabledClass = field.readOnly
     ? "bg-slate-100 text-slate-600 cursor-not-allowed"
@@ -2366,9 +2476,20 @@ function AiField({ field, value, onChange }) {
 
   return (
     <label htmlFor={id} className="block">
-      <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
-        {field.label}
-      </span>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+          {field.label}
+        </span>
+        <span
+          className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${
+            isManual
+              ? "bg-amber-50 text-amber-700 border border-amber-200"
+              : "bg-blue-50 text-blue-700 border border-blue-200"
+          }`}
+        >
+          {isManual ? "A completer" : "Auto GarageFlow"}
+        </span>
+      </div>
 
       {field.type === "select" ? (
         <select

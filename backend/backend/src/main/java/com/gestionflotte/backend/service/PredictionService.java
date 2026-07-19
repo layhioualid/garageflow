@@ -83,6 +83,9 @@ public class PredictionService {
 
         response.put("recommendation", recommendation);
         response.put("modelUsed", modelUsed);
+        response.put("modelVersion", flaskResponse.get("modelVersion"));
+        response.put("threshold", flaskResponse.get("threshold"));
+        response.put("metrics", flaskResponse.get("metrics"));
 
         response.put("inputUsed", flaskResponse.get("inputUsed"));
         response.put("removedColumns", flaskResponse.get("removedColumns"));
