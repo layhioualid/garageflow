@@ -280,25 +280,7 @@ Si le backend ne se connecte pas a MySQL :
 - Verifier `DB_USERNAME`
 - Verifier `DB_PASSWORD`
 
-## Commandes Git utiles
 
-Voir les fichiers modifies :
-
-```bash
-git status
-```
-
-Ajouter les modifications :
-
-```bash
-git add .
-```
-
-Creer un commit :
-
-```bash
-git commit -m "Add project setup README"
-```
 
 Pousser vers GitHub :
 
