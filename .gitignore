@@ -32,6 +32,9 @@ desktop.ini
 .env.*
 !.env.example
 
+# Local database dumps
+*.sql
+
 # Python cache
 __pycache__/
 *.py[cod]
